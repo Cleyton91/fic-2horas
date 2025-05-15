@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Tratamento FIC 2 Horas</title>
+  <style>
+    body {
+      background: #0d0f12;
+      color: #cfd8dc;
+      font-family: 'Segoe UI', Tahoma, sans-serif;
+      padding: 20px;
+      position: relative;
+    }
+    h1 {
+      font-size: 2.5rem;
+      text-align: center;
+      margin-bottom: 24px;
+      color: #4dd0e1;
+      text-shadow: 0 0 10px #4dd0e1;
+    }
+    .datetime {
+      position: absolute;
+      top: 20px;
+      right: 20px;
+      text-align: center;
+      color: #eceff1;
+    }
+    .datetime #time {
+      font-size: 2rem;
+      font-weight: bold;
+      text-shadow: 0 0 8px #4dd0e1;
+    }
+    .datetime #date {
+      font-size: 1rem;
+      color: #90a4ae;
+      margin-top: 4px;
+    }
+    #timers {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+      gap: 16px;
+      margin-top: 60px;
+    }
+    .timer-card {
+      background: #1e272e;
+      border: 1px solid #344055;
+      border-radius: 12px;
+      padding: 16px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.7);
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      grid-row-gap: 8px;
+      align-items: center;
+      position: relative;
+      overflow: hidden;
+      transition: opacity .5s, height .5s, margin .5s, padding .5s;
+    }
+    .timer-card .label {
+      font-weight: 600;
+      font-size: .9rem;
+      color: #90a4ae;
+    }
+    .timer-card .value {
+      font-size: 1rem;
+      color: #eceff1;
+    }
+    .timer-card .countdown {
+      grid-column: 1/-1;
+      text-align: center;
+      font-size: 2.5rem;
+      font-weight: bold;
+      color: #ffca28;
+      text-shadow: 0 0 15px #ffca28;
+      margin-top: 12px;
+    }
+  </style>
+</head>
+<body>
+  <div class="datetime">
+    <div id="time">--:--:--</div>
+    <div id="date">--/--/----</div>
+  </div>
+  <h1>Tratamento FIC 2 Horas</h1>
+  <div id="timers"></div>
+
+  <script>
+    // 1) Relógio e data
+    function updateClock() {
+      const now = new Date();
+      document.getElementById('time').textContent =
+        now.toLocaleTimeString('pt-BR', { hour12: false });
+      document.getElementById('date').textContent =
+        now.toLocaleDateString('pt-BR');
+    }
+    updateClock();
+    setInterval(updateClock, 1000);
+
+    // 2) Map para evitar duplicatas
+    const timersByKey = new Map();
+
+    // 3) Função para adicionar um timer
+    function addTimer(item) {
+      const key = item.fic_number + '|' + item.start;
+      if (timersByKey.has(key)) return;
+
+      const container = document.getElementById('timers');
+      const card = document.createElement('div');
+      card.className = 'timer-card';
+      card.dataset.key = key;
+      card.innerHTML = `
+        <div class="label">FIC:</div><div class="value">${item.fic_number}</div>
+        <div class="label">Modelo:</div><div class="value">${item.model}</div>
+        <div class="label">Tag:</div><div class="value">${item.tag}</div>
+        <div class="label">Início:</div><div class="value">${new Date(item.start).toLocaleString()}</div>
+        <div class="countdown"></div>
+      `;
+      container.appendChild(card);
+
+      const startMs = new Date(item.start).getTime();
+      card._deadline   = startMs + 2 * 60 * 60 * 1000;  // +2h
+      card._removeTime = card._deadline + 5 * 60 * 1000; // +5min
+      timersByKey.set(key, card);
+    }
+
+    // 4) Polling das APIs
+    async function pollServer() {
+      try {
+        // Novos timers
+        let resp = await fetch('/api/fic-220');
+        let data = await resp.json();
+        data.forEach(addTimer);
+
+        // Stopped via PDF watcher
+        resp = await fetch('/api/stopped');
+        let stopped = await resp.json();
+        stopped.forEach(fic => {
+          for (const [key, card] of timersByKey.entries()) {
+            if (key.startsWith(fic + '|')) {
+              card.remove();
+              timersByKey.delete(key);
+            }
+          }
+        });
+      } catch (e) {
+        console.error('Erro no fetch:', e);
+      }
+    }
+    pollServer();
+    setInterval(pollServer, 30 * 1000);
+
+    // 5) Loop de atualização e remoção de cards expirados
+    setInterval(() => {
+      const now = Date.now();
+      for (const [key, card] of timersByKey.entries()) {
+        const disp = card.querySelector('.countdown');
+        if (now >= card._removeTime) {
+          // remove permanentemente
+          card.remove();
+          timersByKey.delete(key);
+        }
+        else if (now >= card._deadline) {
+          disp.textContent = '⏰ Finalizado';
+        } else {
+          const diff = card._deadline - now;
+          const h = String(Math.floor(diff / 3600000)).padStart(2, '0');
+          const m = String(Math.floor((diff % 3600000) / 60000)).padStart(2, '0');
+          const s = String(Math.floor((diff % 60000) / 1000)).padStart(2, '0');
+          disp.textContent = `${h}:${m}:${s}`;
+        }
+      }
+    }, 1000);
+  </script>
+</body>
+</html>

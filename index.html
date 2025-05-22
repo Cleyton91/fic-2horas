@@ -74,6 +74,58 @@
       text-shadow: 0 0 15px #ffca28;
       margin-top: 12px;
     }
+    #admin-panel {
+      margin-top: 40px;
+      background: #1e272e;
+      border: 1px solid #344055;
+      border-radius: 12px;
+      padding: 20px;
+      display: none;
+    }
+    #admin-panel h2 {
+      color: #4dd0e1;
+      margin-top: 0;
+    }
+    #admin-panel textarea {
+      width: 100%;
+      height: 200px;
+      background: #0d0f12;
+      color: #eceff1;
+      border: 1px solid #344055;
+      border-radius: 6px;
+      padding: 10px;
+      font-family: monospace;
+      margin-bottom: 10px;
+    }
+    #admin-panel button {
+      background: #4dd0e1;
+      color: #0d0f12;
+      border: none;
+      border-radius: 6px;
+      padding: 10px 20px;
+      font-weight: bold;
+      cursor: pointer;
+    }
+    #admin-panel button:hover {
+      background: #26c6da;
+    }
+    .admin-toggle {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      background: rgba(30, 39, 46, 0.7);
+      color: #4dd0e1;
+      border: 1px solid #344055;
+      border-radius: 50%;
+      width: 50px;
+      height: 50px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 24px;
+      cursor: pointer;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    }
   </style>
 </head>
 <body>
@@ -83,6 +135,15 @@
   </div>
   <h1>Tratamento FIC 2 Horas</h1>
   <div id="timers"></div>
+  
+  <div class="admin-toggle" onclick="toggleAdmin()">⚙️</div>
+  
+  <div id="admin-panel">
+    <h2>Painel de Administração</h2>
+    <p>Edite os dados JSON abaixo para atualizar os timers:</p>
+    <textarea id="json-editor"></textarea>
+    <button onclick="updateData()">Atualizar Dados</button>
+  </div>
 
   <script>
     // 1) Relógio e data
@@ -98,6 +159,10 @@
 
     // 2) Map para evitar duplicatas
     const timersByKey = new Map();
+    
+    // Dados estáticos (substituídos pelo painel admin)
+    let timerData = [];
+    let stoppedData = [];
 
     // 3) Função para adicionar um timer
     function addTimer(item) {
@@ -123,31 +188,31 @@
       timersByKey.set(key, card);
     }
 
-    // 4) Polling das APIs
-    async function pollServer() {
-      try {
-        // Novos timers
-        let resp = await fetch('/api/fic-220');
-        let data = await resp.json();
-        data.forEach(addTimer);
-
-        // Stopped via PDF watcher
-        resp = await fetch('/api/stopped');
-        let stopped = await resp.json();
-        stopped.forEach(fic => {
-          for (const [key, card] of timersByKey.entries()) {
-            if (key.startsWith(fic + '|')) {
-              card.remove();
-              timersByKey.delete(key);
-            }
+    // 4) Carregamento de dados
+    function loadData() {
+      // Limpa timers existentes
+      document.getElementById('timers').innerHTML = '';
+      timersByKey.clear();
+      
+      // Adiciona novos timers
+      timerData.forEach(addTimer);
+      
+      // Remove timers parados
+      stoppedData.forEach(fic => {
+        for (const [key, card] of timersByKey.entries()) {
+          if (key.startsWith(fic + '|')) {
+            card.remove();
+            timersByKey.delete(key);
           }
-        });
-      } catch (e) {
-        console.error('Erro no fetch:', e);
-      }
+        }
+      });
+      
+      // Atualiza o editor JSON
+      document.getElementById('json-editor').value = JSON.stringify({
+        timers: timerData,
+        stopped: stoppedData
+      }, null, 2);
     }
-    pollServer();
-    setInterval(pollServer, 30 * 1000);
 
     // 5) Loop de atualização e remoção de cards expirados
     setInterval(() => {
@@ -170,6 +235,55 @@
         }
       }
     }, 1000);
+    
+    // 6) Funções do painel de administração
+    function toggleAdmin() {
+      const panel = document.getElementById('admin-panel');
+      panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+    }
+    
+    function updateData() {
+      try {
+        const jsonText = document.getElementById('json-editor').value;
+        const data = JSON.parse(jsonText);
+        
+        if (data.timers && Array.isArray(data.timers)) {
+          timerData = data.timers;
+        }
+        
+        if (data.stopped && Array.isArray(data.stopped)) {
+          stoppedData = data.stopped;
+        }
+        
+        // Salva no localStorage para persistência
+        localStorage.setItem('ficTimerData', JSON.stringify({
+          timers: timerData,
+          stopped: stoppedData
+        }));
+        
+        loadData();
+        alert('Dados atualizados com sucesso!');
+      } catch (e) {
+        alert('Erro ao processar JSON: ' + e.message);
+      }
+    }
+    
+    // 7) Carrega dados iniciais do localStorage ou usa dados padrão
+    window.addEventListener('DOMContentLoaded', () => {
+      const savedData = localStorage.getItem('ficTimerData');
+      if (savedData) {
+        try {
+          const data = JSON.parse(savedData);
+          if (data.timers) timerData = data.timers;
+          if (data.stopped) stoppedData = data.stopped;
+        } catch (e) {
+          console.error('Erro ao carregar dados salvos:', e);
+        }
+      }
+      
+      // Carrega dados iniciais
+      loadData();
+    });
   </script>
 </body>
 </html>
